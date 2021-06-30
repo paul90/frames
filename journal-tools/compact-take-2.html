@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Journal Compactor</title>
+    <meta charset="utf-8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>➡</text></svg>">
+    <script>
+
+      // prevent reload when dropping wiki page flag (or any url)
+      window.addEventListener("dragover",function(e){
+        e.preventDefault();
+      },false);
+      window.addEventListener("drop",function(e){
+        e = e || event;
+        e.preventDefault();
+      },false);
+
+      function compare(a, b) {
+        try {
+          if (a.date < b.date) {
+            return -1
+          }
+          if (a.date > b.date) {
+            return 1
+          }
+          return 0
+        } catch (error) {
+          // date missing, or equal, so...
+          return 0
+        }
+      }
+
+
+      function dragover_handler(ev) {
+        ev.preventDefault()
+      }
+
+      function error_clear() {
+        document.querySelector('#error-message').innerHTML = ''
+      }
+
+      function show_error(err) {
+        document.querySelector('#error-message').innerHTML = '<p>' + err + '</p>'
+      }
+
+      async function drop_handler(ev) {
+        ev.preventDefault()
+        error_clear()
+        let dt = ev.dataTransfer
+        if (dt != null) {
+          let types = dt.types
+          if ((types != null) && (types.includes('text/uri-list') || types.includes('text/x-moz-urlz'))) {
+            let url = dt.getData('URL')
+            if (url != null) {
+              // we have a url
+              // but is it a page?
+              let found, ignore, origin, ref, site, slug
+              if (found = url.match(/^(https?:)\/\/([a-zA-Z0-9:.-]+)(\/([a-zA-Z0-9:.-]+)\/([a-z0-9-]+(_rev\d+)?))+$/)) {
+                let protocol = found[1]
+                let origin = found[2]
+                let site = found[4]
+                let slug = found[5]
+                if (['view','local','origin'].includes(site)) {
+                  site = origin
+                }
+                // we have a wiki page
+                pageURL = protocol + '//' + site + '/' + slug + '.json'
+                console.info('we have a page', pageURL)
+                pageJSON = await fetch_page(pageURL)
+                if (pageJSON) {
+                  const pageKey = window.frameElement.name
+                  const page = compact_journal(pageJSON)
+                  window.parent.postMessage({
+                    action: "showResult",
+                    page,
+                    pageKey,
+                    keepLineup: ev.shiftKey
+                  })
+                }
+              } else {
+                show_error('That does not look like a page flag!')
+              }
+            } else {
+              show_error('Unrecognised item dropped')
+            }
+          } else {
+            show_error('Unrecognised item dropped')
+          }
+        }
+      }
+
+      async function fetch_page(url) {
+        const pageJSON = await fetch(url)
+          .then(response => {
+            if (response.ok) {
+              return response
+            }
+            throw new Error('Response not OK')
+          })
+          .then(response => {
+            return response.json()
+          })
+          .catch(function (error) {
+            show_error('Something when wrong fetching ' + url)
+            return
+          })
+        return pageJSON
+      }
+
+      function compact_journal(pageJSON) {
+        const entryTimeSpan = 300000 // 5 minutes - maybe make this a parameter
+
+        console.info('*** TAKE TWO ***')
+
+        const journalIn = pageJSON.journal
+
+        // let journalMap = new Map() // used in take 1
+        let journalOut = []
+
+
+        /* take 1 code 
+        journalIn.forEach(journalEntry => {
+          try {
+            if (journalEntry.hasOwnProperty('id')) {
+              // console.log(journalEntry)
+              if (journalMap.has(journalEntry.id)) {
+                let entry = journalMap.get(journalEntry.id)
+                entry.push(journalEntry)
+                journalMap.set(journalEntry.id, entry)
+              } else {
+                // console.log('new', journalEntry)
+                let entry = new Array(journalEntry)
+                journalMap.set(journalEntry.id, entry )
+              }
+            } else {
+
+              if (journalEntry.type == 'fork') {
+                console.info('fork', journalEntry)
+                if (Object.keys(journalEntry).includes('site')) {
+                  journalOut.push(journalEntry)
+                }
+              } else { 
+              journalOut.push(journalEntry)
+              }
+            }
+          } catch (error) {
+            console.error('error', error, journalEntry, journalMap)
+          }
+        });
+
+        journalMap.forEach(item => {
+          // just in case the journal wasn't already sorted...
+          item.sort(compare)
+
+          let previous = new Map()
+          for (const action of item) {
+            if (previous.has(action.type)) {
+              if (previous.get(action.type).date + entryTimeSpan > action.date) {
+                previous.set(action.type, action)
+              } else {
+                // console.log('pushing', previous.get(action.item))
+                journalOut.push(previous.get(action.type))
+                previous.set(action.type, action)
+              }
+            } else {
+              previous.set(action.type, action)
+            }
+          }
+          previous.forEach((action) => { journalOut.push(action) })
+        })
+        // end of take 1 code 
+        */
+
+        // take 2
+
+        let previousAction = null
+        
+        for (const action of journalIn) {
+          //console.log('Previous Action', previousAction)
+          //console.log('Action', action)
+          switch (action.type) {
+            case 'create':
+              journalOut.push(action)
+              break;
+            case 'edit':
+              if (previousAction === null) {
+                previousAction = action
+              } else {
+                if (previousAction.id == action.id) {
+                  // previous action for the same item
+                  if (previousAction.type == action.type) {
+                    // previous action was also the same type
+                    if (previousAction.date + entryTimeSpan > action.date) {
+                      // and within the edit window
+                      previousAction = action
+                    } else {
+                      // previous action was sometime ago
+                      journalOut.push(previousAction)
+                      previousAction = action
+                    }
+                  } else {
+                    // not the same type of action
+                    journalOut.push(previousAction)
+                    previousAction = action
+                  }
+                } else {
+                  // for a different item
+                  journalOut.push(previousAction)
+                  previousAction = action
+                }
+              }
+              break;
+            case 'add':
+            case 'move':
+            case 'remove':
+              //
+              if (previousAction != null) {
+                journalOut.push(previousAction)
+                previousAction = null
+              }
+              journalOut.push(action)
+              break;
+            case 'fork':
+              if (action.site != null ) {
+                // fork is from another site
+                if (previousAction != null) {
+                  journalOut.push(previousAction)
+                  previousAction = null
+                }
+                journalOut.push(action)
+              }
+              break;
+            default:
+              // should never get here
+              console.log("*** Extra Type:", action.type)
+              break;
+          }  
+        }
+        // make sure we write out the final action
+        if (previousAction != null) {
+          journalOut.push(previousAction)
+        }
+
+        // sort the journal just to be sure in correct order
+        journalOut.sort(compare)
+
+        console.log('journal in', journalIn)
+        console.log('journal out', journalOut)
+        console.info('journals differences', journalIn.filter(x => !journalOut.includes(x)))
+
+        console.log('journal (in)', journalIn.length)
+        console.log('journal (out)', journalOut.length)
+
+        // now to reconstruct the page
+
+        // do we need be concerned with any none wiki content?
+        let pageOut = {
+          title: pageJSON.title,
+          story: pageJSON.story,
+          journal: journalOut
+        }
+
+        return pageOut
+
+      }
+
+    </script>
+  </head>
+  <body>
+    <h4>Journal Compactor</h4>
+    <div id="drop_zone" style="border: 1px dashed blue; text-align: center;"
+         ondrop="drop_handler(event)" ondragover="dragover_handler(event)">
+      <p>drop page flag here</p>
+    </div>
+    <div id="error-message"></div>
+
+  </body>
+</html>

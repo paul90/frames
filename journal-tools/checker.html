@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Journal Checker</title>
+    <meta charset="utf-8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>➡</text></svg>">
+    <script>
+
+      // prevent reload when dropping wiki page flag (or any url)
+      window.addEventListener("dragover",function(e){
+        e.preventDefault();
+      },false);
+      window.addEventListener("drop",function(e){
+        e = e || event;
+        e.preventDefault();
+      },false);
+
+      function compare(a, b) {
+        try {
+          if (a.date < b.date) {
+            return -1
+          }
+          if (a.date > b.date) {
+            return 1
+          }
+          return 0
+        } catch (error) {
+          // date missing, or equal, so...
+          return 0
+        }
+      }
+
+
+      function dragover_handler(ev) {
+        ev.preventDefault()
+      }
+
+      function error_clear() {
+        document.querySelector('#error-message').innerHTML = ''
+      }
+
+      function show_error(err) {
+        document.querySelector('#error-message').innerHTML = '<p>' + err + '</p>'
+      }
+
+      async function drop_handler(ev) {
+        ev.preventDefault()
+        error_clear()
+        let dt = ev.dataTransfer
+        if (dt != null) {
+          let types = dt.types
+          if ((types != null) && (types.includes('text/uri-list') || types.includes('text/x-moz-urlz'))) {
+            let url = dt.getData('URL')
+            if (url != null) {
+              // we have a url
+              // but is it a page?
+              let found, ignore, origin, ref, site, slug
+              if (found = url.match(/^(https?:)\/\/([a-zA-Z0-9:.-]+)(\/([a-zA-Z0-9:.-]+)\/([a-z0-9-]+(_rev\d+)?))+$/)) {
+                let protocol = found[1]
+                let origin = found[2]
+                let site = found[4]
+                let slug = found[5]
+                if (['view','local','origin'].includes(site)) {
+                  site = origin
+                }
+                // we have a wiki page
+                pageURL = protocol + '//' + site + '/' + slug + '.json'
+                console.info('we have a page', pageURL)
+                pageJSON = await fetch_page(pageURL)
+                if (pageJSON) {
+                  let resultPage = {}
+                  const pageKey = window.frameElement.name
+                  const page = check_journal(pageJSON, site, slug)
+                  window.parent.postMessage({
+                    action: "showResult",
+                    page,
+                    pageKey,
+                    keepLineup: ev.shiftKey
+                  })
+                }
+              } else {
+                show_error('That does not look like a page flag!')
+              }
+            } else {
+              show_error('Unrecognised item dropped')
+            }
+          } else {
+            show_error('Unrecognised item dropped')
+          }
+        }
+      }
+
+      async function fetch_page(url) {
+        const pageJSON = await fetch(url)
+          .then(response => {
+            if (response.ok) {
+              return response
+            }
+            throw new Error('Response not OK')
+          })
+          .then(response => {
+            return response.json()
+          })
+          .catch(function (error) {
+            show_error('Something when wrong fetching ' + url)
+            return
+          })
+        return pageJSON
+      }
+
+      function randomId () {
+        return Array.apply(null, Array(8)).map(function () { return (((1 + Math.random()) * 0x100) | 0).toString(16).substring(1)}).join('')
+      }
+
+      function compare(a, b) {
+        try {
+          if (a.date < b.date) {
+            return -1
+          }
+          if (a.date > b.date) {
+            return 1
+          }
+          return 0
+        } catch (error) {
+          // date missing, or equal, so...
+          return 0
+        }
+      }
+
+      function basic_checks (page) {
+        // check for nulls
+        for (let item of page.story) {
+          if (!item || !item.type) {
+            console.info('Nulls found')
+            addItem({
+              "type": "html",
+              "id": randomId(),
+              "text": "<span style='color: red; font-weight: bold'>NULLS</span> story contains null items or null type in item. "
+            })
+          }
+          break;
+        }
+
+        // check for huge and bloated journal
+        let storyLength = JSON.stringify(page.story, null, 2).length
+        let journalLength = JSON.stringify(page.journal || [], null, 2).length
+        if (storyLength + journalLength > 5000000) {
+          console.info('Page is HUGE')
+          addItem({
+            "type": "html",
+            "id": randomId(),
+            "text": "<span style='color: red; font-weight: bold'>HUGE</span> page is too big to fork, greater than 5 MB."
+          })
+        }
+        if (storyLength > 5000 && journalLength > 20 * storyLength) {
+          console.info('Journal is bloated')
+          addItem({
+            "type": "html",
+            "id": randomId(),
+            "text": "<span style='color: red; font-weight: bold'>BLOATED</span> journal is more than twenty times bigger than story."
+          })
+        }
+
+        // check chronology
+        let chronError = false
+        let date = null
+        for (let action of page.journal) {
+          if (date && action.date && date > action.date) {
+            console.info('Journal is out of order')
+            addItem({
+              "type": "html",
+              "id": randomId(),
+              "text": "<span style='color: red; font-weight: bold'>CHRONOLOGY</span> journal contains items out of chronological order. "
+            })
+            chronError = true
+            break;
+          }
+          date = action.date
+        }
+
+        // check journal can recreate current page
+
+        // apply journal action to page
+        function applyAction (page, action) {
+          let index;
+          const order = () => Array.from(page.story||[]).map((item) => (item != null ? item.id : undefined));
+
+          const add = function(after, item) {
+            const index = order().indexOf(after) + 1;
+            return page.story.splice(index, 0, item);
+          };
+
+          const remove = function() {
+            let index;
+            if ((index = order().indexOf(action.id)) !== -1) {
+              return page.story.splice(index,1);
+            }
+          };
+
+          if (!page.story) { page.story = []; }
+
+          switch (action.type) {
+            case 'create':
+              if (action.item != null) {
+                if (action.item.title != null) { page.title = action.item.title; }
+                if (action.item.story != null) { page.story = action.item.story.slice(); }
+              }
+              break;
+            case 'add':
+              add(action.after, action.item);
+              break;
+            case 'edit':
+              if ((index = order().indexOf(action.id)) !== -1) {
+                page.story.splice(index,1,action.item);
+              } else {
+                page.story.push(action.item);
+              }
+              break;
+            case 'move':
+              // construct relative addresses from absolute order
+              index = action.order.indexOf(action.id);
+              var after = action.order[index-1];
+              var item = page.story[order().indexOf(action.id)];
+              remove();
+              add(after, item);
+              break;
+            case 'remove':
+              remove();
+              break;
+          }
+
+          if (!page.journal) { page.journal = []; }
+          return page.journal.push(action);
+        }
+
+        let revPage = {title: page.title, story: []}
+        for (let action of page.journal || []) {
+          applyAction(revPage, action||{})
+        }
+        if (JSON.stringify(page.story) != JSON.stringify(revPage.story)) {
+          console.info('Revision problem', {page, revPage})
+          addItem({
+            "type": "html",
+            "id": randomId(),
+            "text": "<span style='color: red; font-weight: bold'>REVISION</span> journal cannot construct the current version."
+          })
+        }
+
+        // did we have chron error, does sorting cause a problem
+        if (chronError) {
+          sortedJournal = page.journal.sort(compare)
+
+          revPage = {title: page.title, story: []}
+          for (let action of sortedJournal || [] ) {
+            applyAction(revPage, action||{})
+          }
+          if (JSON.stringify(page.story) != JSON.stringify(revPage.story)) {
+            console.info('Sorted journal has revision problem', {page, revPage})
+            addItem({
+              "type": "html",
+              "id": randomId(),
+              "text": "<span style='color: red; font-weight: bold'>SORTED REVISION</span> sorted journal cannot construct the current version."
+            })
+          }
+        }
+      }
+
+      function addItem (item) {
+        journalEntry = {
+          "type": "add",
+          "id": item.id,
+          "item": item,
+          "date": Date.now()
+        }
+        if (resultPage.story.length > 0) {
+          journalEntry['after'] = resultPage.story[resultPage.story.length - 1].id
+        }
+        resultPage.story.push(item)
+        resultPage.journal.push(journalEntry)
+      }
+
+      function check_journal(pageJSON, site, slug) {
+        resultPage = {
+          title: 'Journal Checker Results',
+          story: [],
+          journal: []
+        }
+        // add the create event to the journal
+        resultPage.journal.push({
+          "type": "create",
+          "item": {
+            "title": "Journal Checker Results",
+            "story": []
+          },
+          "date": Date.now()
+        })
+
+        // add a reference to the page we are checking
+        addItem({
+          "type": "reference",
+          "site": site,
+          "slug": slug,
+          "title": pageJSON.title,
+          "text": ""
+        })
+
+        addItem({
+          "type": "pagefold",
+          "id": randomId(),
+          "text": "errors"
+        })
+
+        // some initial basic checks
+        basic_checks(pageJSON)
+
+        addItem({
+          "type": "pagefold",
+          "id": randomId(),
+          "text": "notes"
+        })
+
+        addItem({
+          "type": "html",
+          "id": randomId(),
+          "text": "Any line starting in <span style='color: red; font-weight: bold'>RED</span> indicate that the page being checked has some problems."
+        })
+
+        addItem({
+          "type": "html",
+          "id": randomId(),
+          "text": "A <span style='color: red; font-weight: bold'>REVISION</span> error indicates that there is a seroius problem with the page."
+        })
+
+        addItem({
+          "type": "html",
+          "id": randomId(),
+          "text": "A <span style='color: red; font-weight: bold'>HUGE</span>, <span style='color: red; font-weight: bold'>BLOATED</span>, or <span style='color: red; font-weight: bold'>CHRONOLOGY</span> might be resolved by compacting the page journal (see [[Journal Compactor]])."
+        })
+
+
+        return resultPage
+      }
+      
+    </script>
+  </head>
+  <body>
+    <h4>Journal Checker</h4>
+    <div id="drop_zone" style="border: 1px dashed blue; text-align: center;"
+         ondrop="drop_handler(event)" ondragover="dragover_handler(event)">
+      <p>drop page flag here</p>
+    </div>
+    <div id="error-message"></div>
+
+  </body>
+</html>
