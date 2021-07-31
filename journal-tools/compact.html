@@ -68,14 +68,14 @@
                 console.info('we have a page', pageURL)
                 pageJSON = await fetch_page(pageURL)
                 if (pageJSON) {
-                  const pageKey = window.frameElement.name
+                  // const pageKey = window.frameElement.name
                   const page = compact_journal(pageJSON)
                   window.parent.postMessage({
                     action: "showResult",
                     page,
-                    pageKey,
+                    // pageKey,
                     keepLineup: ev.shiftKey
-                  })
+                  }, "*")
                 }
               } else {
                 show_error('That does not look like a page flag!')
@@ -114,64 +114,11 @@
 
         const journalIn = pageJSON.journal
 
+        // sort the journal before we start just to be sure in correct order
+        journalIn.sort(compare)
+
         // let journalMap = new Map() // used in take 1
         let journalOut = []
-
-
-        /* take 1 code 
-        journalIn.forEach(journalEntry => {
-          try {
-            if (journalEntry.hasOwnProperty('id')) {
-              // console.log(journalEntry)
-              if (journalMap.has(journalEntry.id)) {
-                let entry = journalMap.get(journalEntry.id)
-                entry.push(journalEntry)
-                journalMap.set(journalEntry.id, entry)
-              } else {
-                // console.log('new', journalEntry)
-                let entry = new Array(journalEntry)
-                journalMap.set(journalEntry.id, entry )
-              }
-            } else {
-
-              if (journalEntry.type == 'fork') {
-                console.info('fork', journalEntry)
-                if (Object.keys(journalEntry).includes('site')) {
-                  journalOut.push(journalEntry)
-                }
-              } else { 
-              journalOut.push(journalEntry)
-              }
-            }
-          } catch (error) {
-            console.error('error', error, journalEntry, journalMap)
-          }
-        });
-
-        journalMap.forEach(item => {
-          // just in case the journal wasn't already sorted...
-          item.sort(compare)
-
-          let previous = new Map()
-          for (const action of item) {
-            if (previous.has(action.type)) {
-              if (previous.get(action.type).date + entryTimeSpan > action.date) {
-                previous.set(action.type, action)
-              } else {
-                // console.log('pushing', previous.get(action.item))
-                journalOut.push(previous.get(action.type))
-                previous.set(action.type, action)
-              }
-            } else {
-              previous.set(action.type, action)
-            }
-          }
-          previous.forEach((action) => { journalOut.push(action) })
-        })
-        // end of take 1 code 
-        */
-
-        // take 2
 
         let previousAction = null
         

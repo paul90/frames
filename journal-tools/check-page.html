@@ -69,12 +69,12 @@
                 pageJSON = await fetch_page(pageURL)
                 if (pageJSON) {
                   let resultPage = {}
-                  const pageKey = window.frameElement.name
+                  // const pageKey = window.frameElement.name
                   const page = check_journal(pageJSON, site, slug)
                   window.parent.postMessage({
                     action: "showResult",
                     page,
-                    pageKey,
+                    // pageKey,
                     keepLineup: ev.shiftKey
                   })
                 }
