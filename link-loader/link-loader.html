@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>➡</text></svg>">
+  <link rel="stylesheet" href="./journal-tools.css">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor.js Testing</title>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/simple-image@latest"></script>
+  <script type="module">
+    
+    // prevent reload when dropping wiki page flag (or any url)
+    window.addEventListener("dragover",function(e){
+      e.preventDefault();
+    },false);
+    window.addEventListener("drop",function(e){
+      e = e || event;
+      e.preventDefault();
+    },false);
+
+    window.addEventListener('dragenter', function(e){
+      e.preventDefault()
+    })
+
+    function dragover_handler(ev) {
+      ev.preventDefault()
+    }
+
+    async function drop_handler(ev) {
+      ev.preventDefault()
+      let dt = ev.dataTransfer
+      if (dt != null) {
+        let types = dt.types
+        if ((types != null) && (types.includes('text/uri-list') || types.includes('text/x-moz-urlz'))) {
+          let url = new URL(dt.getData('URL'))
+          if (url != null) {
+            // we have a url
+            const lineupOrigin = url.host
+            const pathAsArray = url.pathname.split('/').filter(n => n)
+
+            let first = true
+            let keepLineup = true
+
+            while (pathAsArray.length > 0) {
+              let [site, slug] = pathAsArray.splice(0,2)
+              if (['view', 'origin', 'local'].includes(site)) {
+                site = lineupOrigin
+              }
+              if (first) {
+                keepLineup = ev.shiftKey
+                first = false
+              } else {
+                keepLineup = true
+              }
+              console.info(slug, site, ev.shiftKey)
+              window.parent.postMessage({
+                action: 'doInternalLink',
+                title: slug,
+                site,
+                keepLineup
+              }, '*')
+            }
+
+
+          }
+        }
+      }
+    }
+
+
+    document.querySelector('#drop_zone').addEventListener('drop', drop_handler)
+    document.querySelector('#drop_zone').addEventListener('dragenter', dragover_handler)
+    document.querySelector('#drop_zone').addEventListener('dragover', dragover_handler)
+
+  </script>
+</head>
+<body>
+  <div id="drop_zone" style="border: 1px dashed blue; text-align: center; margin-bottom: 12px;">
+    <p>drop lineup link here</p>
+  </div>
+
+</body>
+</html>
