@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Site Checker</title>
+    <meta charset="utf=8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>➡</text></svg>">
+    <script>
+      // add two event listeners to
+      // prevent reload when dropping wiki page flag (or any url)
+      window.addEventListener("dragover",function(e){
+        e.preventDefault();
+      },false);
+      window.addEventListener("drop",function(e){
+        e = e || event;
+        e.preventDefault();
+      },false);
+
+
+    </script>
+  </head>
+</html>

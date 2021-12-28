@@ -1,0 +1,102 @@
+<div id=result onclick=doopen(event)>working</div>
+<input type=text id=title size=25 placeholder="Optional Title">
+<button onclick=domerge(event)>merge</button>
+
+<script type=module>
+
+  import {context, open} from "http://code.fed.wiki/assets/v1/frame.js"
+
+  let story = (await context()).page.story
+  let choices = story
+    .map(markup => markup.text?.match(/\[https:\/\/arrows.app\/#\/import\/json=(.*?) (.*?)\]/))
+    .filter(match => match)
+  window.result.innerHTML = `
+    <p>${choices.map(choice => `
+      <input type=checkbox> <span>${choice[2]}</span>`).join("<br>")}
+    </p>`
+
+  window.doopen = function(event){
+    if(event.target.nodeName == 'INPUT') return
+    let title = event.target.innerText
+    retrieve([title])
+  }
+
+  window.domerge = function(event){
+    let checks = window.result.querySelectorAll("input[type='checkbox']")
+    let titles = [...checks].filter(check => check.checked).map(check => check.nextElementSibling.innerText)
+    retrieve(titles)
+  }
+
+  function retrieve(titles) {
+
+    let nodes = []
+    let relations = []
+    let graph = []
+
+    let chosen = []
+    let intersections = new Set()
+
+    for (let title of titles) {
+      let choice = choices.find(choice => choice[2] == title)
+      chosen.push(choice[0])
+      let arrow = JSON.parse(atob(choice[1])).graph
+
+      const nameof = id => arrow.nodes.find(each => each.id == id).caption
+      const includes = edge => graph.find(has => has[0]==edge[0] && has[1]==edge[1] && has[2]==edge[2])
+
+      for (let node of arrow.nodes)
+        if(!nodes.includes(node.caption))
+          nodes.push(node.caption)
+        else
+          intersections.add(node.caption)
+      for (let rel of arrow.relationships)
+        if(!relations.includes(rel.type))
+          relations.push(rel.type)
+      for (let rel of arrow.relationships) {
+        let edge = [
+          nodes.indexOf(nameof(rel.fromId)),
+          relations.indexOf(rel.type),
+          nodes.indexOf(nameof(rel.toId))
+        ]
+        if(!includes(edge))
+          graph.push(edge)
+      }
+    }
+
+    const inbound = node => graph.filter(edge => edge[2] == node).map(edge => edge[0])
+    const outbound = node => graph.filter(edge => edge[0] == node).map(edge => edge[2])
+    let roots = [...intersections].map (root => ({
+      root,
+      in:inbound(nodes.indexOf(root)).length,
+      out:outbound(nodes.indexOf(root)).length
+    }))
+    const td = word => `<td style="border: 1px solid gray; padding:8px; ">${word}`
+    let table = `
+      <table style="border-collapse:collapse;">
+        ${roots.map(row => `<tr>${td(row.root)}${td(row.in)}${td(row.out)}`).join("\n")}
+      </table>`
+
+    let highlights = [...intersections].map(node => nodes.indexOf(node))
+    let token = btoa(JSON.stringify({nodes,relations,graph,highlights}))
+
+    const quote = text => `"${text.split(/ /).join("\\n")}"`
+    const edge = rel => `${quote(nodes[rel[0]])} -> ${quote(nodes[rel[2]])}`
+    let text = `digraph {
+      layout=neato; overlap = false; splines=true
+      node [style=filled fillcolor=bisque]
+      ${[...intersections].map(node => `${quote(node)} [penwidth=3]`).join("\n")}\n
+      ${graph.reverse().map(edge).join("\n")}
+      \n}`
+
+    let expand = `http://ward.dojo.fed.wiki/assets/pages/import-from-arrow/arrow-expand.html`
+    let story = [
+      {type:'paragraph',text:`Imported from Arrows: ${chosen.join(", ")}`},
+      {type:'paragraph',text:`View in detail full screen. [${expand}#${token} page]`},
+      {type:'graphviz',text},
+      {type:'html',text:table}
+    ]
+    let title = titles.length == 1 ? titles[0] : window.title.value || 'Selected Graphs Merged'
+    console.log({title,story})
+    open({title,story},event.shiftKey)
+  }
+</script>
