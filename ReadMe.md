@@ -1,4 +1,4 @@
-Some Frame based experiments.
+Some Frame Plugin based experiments.
 
 **Journal Tools** - a continuing look at exploring the problems with some wiki page journals. The stable code is published as the [Journalmatic plugin](https://github.com/fedwiki/wiki-plugin-journalmatic).
 
